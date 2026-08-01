@@ -130,8 +130,10 @@ def solve_optimal(bar_length: float, pieces: List[Piece], time_limit_s: int = 20
 
     # Contrainte : la longueur totale coupée dans une barre ne dépasse pas bar_length,
     # et seulement si la barre est "utilisée" (y[b] == 1)
-    # On multiplie par un facteur pour éviter les floats dans CP-SAT (qui veut des entiers)
-    scale = 1000  # précision au mm si bar_length est en m
+    # CP-SAT a besoin d'entiers : comme les longueurs sont maintenant saisies
+    # directement en millimètres (unité déjà entière côté usine), scale=1 suffit.
+    # (Si un jour l'unité redevient le mètre avec décimales, remettre scale=1000.)
+    scale = 1
     bar_length_int = round(bar_length * scale)
     for b in range(max_bins):
         model.Add(
