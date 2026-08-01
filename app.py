@@ -15,14 +15,16 @@ st.caption("Minimise le nombre de barres utilisées et le déchet de matière.")
 # --- Paramètres d'entrée ---
 st.header("1. Paramètres")
 
-bar_length = st.number_input("Longueur de la barre standard (m)", min_value=0.1, value=12.0, step=0.1)
+bar_length = st.number_input(
+    "Longueur de la barre standard (mm)", min_value=1, value=12000, step=1
+)
 
 st.subheader("2. Liste des pièces à découper")
-st.caption("Ajoute une ligne par type de pièce : longueur (m) et quantité nécessaire.")
+st.caption("Ajoute une ligne par type de pièce : longueur (mm) et quantité nécessaire.")
 
 if "pieces_df" not in st.session_state:
     st.session_state.pieces_df = pd.DataFrame(
-        {"Label": ["Pièce A", "Pièce B"], "Longueur (m)": [5.0, 3.0], "Quantité": [7, 6]}
+        {"Label": ["Pièce A", "Pièce B"], "Longueur (mm)": [5000, 3000], "Quantité": [7, 6]}
     )
 
 edited_df = st.data_editor(
@@ -55,9 +57,9 @@ if run:
     pieces = []
     for _, row in df.iterrows():
         try:
-            length = float(row["Longueur (m)"])
+            length = int(round(float(row["Longueur (mm)"])))
             qty = int(row["Quantité"])
-            label = str(row["Label"]) if row["Label"] else f"{length}m"
+            label = str(row["Label"]) if row["Label"] else f"{length}mm"
         except (ValueError, TypeError):
             st.error(f"Ligne invalide : {row.to_dict()}")
             st.stop()
@@ -86,7 +88,7 @@ if run:
     st.header("Résultat")
     col1, col2, col3 = st.columns(3)
     col1.metric("Nombre de barres", stats["nb_barres"])
-    col2.metric("Déchet total (m)", stats["dechet_total"])
+    col2.metric("Déchet total (mm)", int(stats["dechet_total"]))
     col3.metric("Taux de déchet", f"{stats['taux_dechet_pct']} %")
 
     st.subheader("Détail par barre")
@@ -96,8 +98,8 @@ if run:
             {
                 "Barre #": idx,
                 "Pièces découpées": ", ".join(b.labels),
-                "Matière utilisée (m)": round(b.used, 3),
-                "Déchet (m)": round(b.waste, 3),
+                "Matière utilisée (mm)": int(b.used),
+                "Déchet (mm)": int(b.waste),
             }
         )
     result_df = pd.DataFrame(rows)
@@ -113,14 +115,14 @@ if run:
             pct = 100 * cut / b.capacity
             color = colors[i % len(colors)]
             html += (
-                f'<div title="{label}: {cut}m" style="width:{pct}%;background:{color};'
+                f'<div title="{label}: {int(cut)}mm" style="width:{pct}%;background:{color};'
                 f'display:flex;align-items:center;justify-content:center;color:white;'
                 f'font-size:11px;overflow:hidden;">{label}</div>'
             )
         waste_pct = 100 * b.waste / b.capacity
         if waste_pct > 0.5:
             html += (
-                f'<div title="Déchet: {b.waste:.2f}m" style="width:{waste_pct}%;'
+                f'<div title="Déchet: {int(b.waste)}mm" style="width:{waste_pct}%;'
                 f'background:repeating-linear-gradient(45deg,#eee,#eee 4px,#ddd 4px,#ddd 8px);"></div>'
             )
         html += "</div>"
@@ -130,3 +132,4 @@ if run:
     # Export CSV
     csv = result_df.to_csv(index=False).encode("utf-8")
     st.download_button("📥 Télécharger le résultat (CSV)", csv, "resultat_decoupe.csv", "text/csv")
+    
