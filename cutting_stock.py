@@ -171,6 +171,127 @@ def solve_optimal(bar_length: float, pieces: List[Piece], time_limit_s: int = 20
     return result_bins
 
 
+def solve_from_chutes(chutes: List[Piece], pieces: List[Piece], time_limit_s: int = 30) -> Dict:
+    """Découpe des pièces demandées à partir d'un stock FIXE et hétérogène de
+    chutes (chaque chute a sa propre longueur et une quantité disponible).
+
+    Contrairement à solve_optimal() (barres neuves, illimitées, longueur unique),
+    ici le stock est limité : il peut être impossible de satisfaire toute la
+    demande. Deux cas :
+
+    CAS 1 - Réalisable : toute la demande peut être satisfaite avec les chutes
+        disponibles -> on minimise le déchet (= on utilise le moins de matière
+        possible parmi les chutes, quitte à en laisser certaines intactes).
+    CAS 2 - Irréalisable : la demande dépasse ce que permettent les chutes
+        -> on utilise un maximum de chutes pour couper le plus grand nombre
+        de pièces possible (sans dépasser la quantité demandée par type),
+        et on indique le manque restant par type de pièce.
+
+    Retourne un dict :
+        {
+          "feasible": bool,
+          "bins": List[Bin],              # chutes effectivement utilisées et leur découpe
+          "shortfall": Dict[str, int],     # manque par label de pièce (vide si feasible=True)
+        }
+    """
+    from ortools.sat.python import cp_model
+
+    chute_units = _expand_pieces(chutes)  # une ligne par chute physique disponible
+    n_chutes = len(chute_units)
+    n_types = len(pieces)
+
+    if n_chutes == 0 or n_types == 0:
+        return {"feasible": False, "bins": [], "shortfall": {p.label: p.quantity for p in pieces}}
+
+    # ---------- CAS 1 : tenter de tout satisfaire en minimisant le déchet ----------
+    model = cp_model.CpModel()
+    x = {}
+    for c in range(n_chutes):
+        for i in range(n_types):
+            max_par_chute = int(chute_units[c].length // pieces[i].length) if pieces[i].length > 0 else 0
+            borne = min(pieces[i].quantity, max_par_chute)
+            x[c, i] = model.NewIntVar(0, max(borne, 0), f"x_{c}_{i}")
+
+    for c in range(n_chutes):
+        model.Add(sum(round(pieces[i].length) * x[c, i] for i in range(n_types)) <= round(chute_units[c].length))
+
+    for i in range(n_types):
+        model.Add(sum(x[c, i] for c in range(n_chutes)) == pieces[i].quantity)
+
+    y = [model.NewBoolVar(f"y_{c}") for c in range(n_chutes)]
+    for c in range(n_chutes):
+        max_pieces_possible = sum(
+            min(pieces[i].quantity, int(chute_units[c].length // pieces[i].length) if pieces[i].length > 0 else 0)
+            for i in range(n_types)
+        )
+        model.Add(sum(x[c, i] for i in range(n_types)) <= max_pieces_possible * y[c])
+
+    # Minimiser la matière totale consommée (= minimiser le déchet, la demande étant fixe)
+    model.Minimize(sum(round(chute_units[c].length) * y[c] for c in range(n_chutes)))
+
+    solver = cp_model.CpSolver()
+    solver.parameters.max_time_in_seconds = time_limit_s
+    solver.parameters.num_search_workers = 8
+    status = solver.Solve(model)
+
+    if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        bins = []
+        for c in range(n_chutes):
+            if solver.Value(y[c]) == 0:
+                continue
+            bn = Bin(capacity=chute_units[c].length)
+            for i in range(n_types):
+                for _ in range(solver.Value(x[c, i])):
+                    bn.add(pieces[i].length, pieces[i].label)
+            bins.append(bn)
+        return {"feasible": True, "bins": bins, "shortfall": {}}
+
+    # ---------- CAS 2 : irréalisable -> maximiser le nombre de pièces coupées ----------
+    model2 = cp_model.CpModel()
+    x2 = {}
+    for c in range(n_chutes):
+        for i in range(n_types):
+            max_par_chute = int(chute_units[c].length // pieces[i].length) if pieces[i].length > 0 else 0
+            borne = min(pieces[i].quantity, max_par_chute)
+            x2[c, i] = model2.NewIntVar(0, max(borne, 0), f"x2_{c}_{i}")
+
+    for c in range(n_chutes):
+        model2.Add(sum(round(pieces[i].length) * x2[c, i] for i in range(n_types)) <= round(chute_units[c].length))
+
+    for i in range(n_types):
+        model2.Add(sum(x2[c, i] for c in range(n_chutes)) <= pieces[i].quantity)
+
+    model2.Maximize(sum(x2[c, i] for c in range(n_chutes) for i in range(n_types)))
+
+    solver2 = cp_model.CpSolver()
+    solver2.parameters.max_time_in_seconds = time_limit_s
+    solver2.parameters.num_search_workers = 8
+    status2 = solver2.Solve(model2)
+
+    bins = []
+    produit_par_type = {i: 0 for i in range(n_types)}
+    if status2 in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        for c in range(n_chutes):
+            compte = sum(solver2.Value(x2[c, i]) for i in range(n_types))
+            if compte == 0:
+                continue
+            bn = Bin(capacity=chute_units[c].length)
+            for i in range(n_types):
+                v = solver2.Value(x2[c, i])
+                produit_par_type[i] += v
+                for _ in range(v):
+                    bn.add(pieces[i].length, pieces[i].label)
+            bins.append(bn)
+
+    shortfall = {
+        pieces[i].label: pieces[i].quantity - produit_par_type[i]
+        for i in range(n_types)
+        if pieces[i].quantity - produit_par_type[i] > 0
+    }
+
+    return {"feasible": False, "bins": bins, "shortfall": shortfall}
+
+
 def summarize(bins: List[Bin]) -> Dict:
     total_waste = sum(b.waste for b in bins)
     total_used = sum(b.used for b in bins)
