@@ -111,6 +111,7 @@ def afficher_resultat(bins, unite_bin="Barre"):
     for idx, b in enumerate(bins, 1):
         colors = ["#4C72B0", "#DD8452", "#55A868", "#C44E52", "#8172B2", "#937860", "#DA8BC3"]
         html = f'<div style="display:flex;width:100%;height:28px;border:1px solid #ccc;margin-bottom:4px;">'
+
         for i, (cut, label) in enumerate(zip(b.cuts, b.labels)):
             pct = 100 * cut / b.capacity
             color = colors[i % len(colors)]
@@ -119,25 +120,33 @@ def afficher_resultat(bins, unite_bin="Barre"):
                 f'display:flex;align-items:center;justify-content:center;color:white;'
                 f'font-size:11px;overflow:hidden;">{label}</div>'
             )
+
         waste_pct = 100 * b.waste / b.capacity
+
         if waste_pct > 0.5:
             html += (
                 f'<div title="Déchet: {int(b.waste)}mm" style="width:{waste_pct}%;'
                 f'background:repeating-linear-gradient(45deg,#eee,#eee 4px,#ddd 4px,#ddd 8px);"></div>'
             )
+
         html += "</div>"
-        st.markdown(f"**{unite_bin} {idx}** ({int(b.capacity)}mm)", unsafe_allow_html=True)
+
+        st.markdown(
+            f"**{unite_bin} {idx}** ({int(b.capacity)}mm)",
+            unsafe_allow_html=True
+        )
+
         st.markdown(html, unsafe_allow_html=True)
 
-   pdf = generer_pdf(result_df, stats, unite_bin)
+    # ===== PDF =====
+    pdf = generer_pdf(result_df, stats, unite_bin)
 
-   st.download_button(
-    "📥 Télécharger le résultat (PDF)",
-    pdf,
-    "resultat_decoupe.pdf",
-    "application/pdf",
-   )
-
+    st.download_button(
+        "📥 Télécharger le résultat (PDF)",
+        pdf,
+        "resultat_decoupe.pdf",
+        "application/pdf"
+    )
 
 def lire_pieces_depuis_editeur(df, nom_erreur="pièce"):
     """Convertit un data_editor (Label/Longueur/Quantité) en liste de Piece,
