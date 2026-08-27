@@ -5,6 +5,11 @@ Lancer avec : streamlit run app.py
 
 import streamlit as st
 import pandas as pd
+import io
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from cutting_stock import Piece, solve_bfd, solve_optimal, solve_from_chutes, summarize
 
 st.set_page_config(page_title="Optimiseur de découpe métal", page_icon="🔩", layout="centered")
@@ -17,7 +22,65 @@ mode = st.radio(
     horizontal=False,
 )
 
+def generer_pdf(result_df, stats, unite_bin="Barre"):
+    buffer = io.BytesIO()
 
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=30,
+        leftMargin=30,
+        topMargin=30,
+        bottomMargin=30,
+    )
+
+    styles = getSampleStyleSheet()
+    elements = []
+
+    elements.append(
+        Paragraph("Résultat d'optimisation de découpe", styles["Title"])
+    )
+    elements.append(Spacer(1, 15))
+
+    elements.append(
+        Paragraph(
+            f"Nombre de {unite_bin.lower()}s : {stats['nb_barres']}<br/>"
+            f"Déchet total : {int(stats['dechet_total'])} mm<br/>"
+            f"Taux de déchet : {stats['taux_dechet_pct']} %",
+            styles["Normal"],
+        )
+    )
+
+    elements.append(Spacer(1, 20))
+
+    # Conversion du DataFrame en tableau PDF
+    data = [list(result_df.columns)] + result_df.astype(str).values.tolist()
+
+    table = Table(data, repeatRows=1)
+
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.whitesmoke]),
+                ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+            ]
+        )
+    )
+
+    elements.append(table)
+
+    doc.build(elements)
+
+    buffer.seek(0)
+    return buffer.getvalue()
+    
 def afficher_resultat(bins, unite_bin="Barre"):
     """Affiche le tableau récapitulatif + la visualisation graphique + l'export CSV
     pour une liste de Bin — réutilisé par les deux modes."""
@@ -66,8 +129,14 @@ def afficher_resultat(bins, unite_bin="Barre"):
         st.markdown(f"**{unite_bin} {idx}** ({int(b.capacity)}mm)", unsafe_allow_html=True)
         st.markdown(html, unsafe_allow_html=True)
 
-    csv = result_df.to_csv(index=False).encode("utf-8")
-    st.download_button("📥 Télécharger le résultat (CSV)", csv, "resultat_decoupe.csv", "text/csv")
+   pdf = generer_pdf(result_df, stats, unite_bin)
+
+   st.download_button(
+    "📥 Télécharger le résultat (PDF)",
+    pdf,
+    "resultat_decoupe.pdf",
+    "application/pdf",
+   )
 
 
 def lire_pieces_depuis_editeur(df, nom_erreur="pièce"):
